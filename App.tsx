@@ -134,16 +134,28 @@ export default function App() {
 
       <View style={styles.resultContainer}>
         <View style={styles.tabContainer}>
-          <Pressable onPress={() => setActiveTab('Image')} style={[styles.tab, activeTab === 'Image' && styles.activeTab]}>
+          <Pressable
+            android_ripple={{ color: '#444', borderless: false }}
+            onPress={() => setActiveTab('Image')}
+            style={[styles.tab, activeTab === 'Image' && styles.activeTab]}>
             <Text style={styles.text}>Image ({media.images.length})</Text>
           </Pressable>
-          <Pressable onPress={() => setActiveTab('Audio')} style={[styles.tab, activeTab === 'Audio' && styles.activeTab]}>
+          <Pressable
+            android_ripple={{ color: '#444', borderless: false }}
+            onPress={() => setActiveTab('Audio')}
+            style={[styles.tab, activeTab === 'Audio' && styles.activeTab]}>
             <Text style={styles.text}>Audio ({media.audios.length})</Text>
           </Pressable>
-          <Pressable onPress={() => setActiveTab('Video')} style={[styles.tab, activeTab === 'Video' && styles.activeTab]}>
+          <Pressable
+            android_ripple={{ color: '#444', borderless: false }}
+            onPress={() => setActiveTab('Video')}
+            style={[styles.tab, activeTab === 'Video' && styles.activeTab]}>
             <Text style={styles.text}>Video ({media.videos.length})</Text>
           </Pressable>
-          <Pressable onPress={() => setActiveTab('Other')} style={[styles.tab, activeTab === 'Other' && styles.activeTab]}>
+          <Pressable
+            android_ripple={{ color: '#444', borderless: false }}
+            onPress={() => setActiveTab('Other')}
+            style={[styles.tab, activeTab === 'Other' && styles.activeTab]}>
             <Text style={styles.text}>Other ({media.others.length})</Text>
           </Pressable>
         </View>
