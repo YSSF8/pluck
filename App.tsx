@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, Image, Pressable, ScrollView, SafeAreaView, ActivityIndicator, Alert } from 'react-native';
-import React, { useState } from 'react';
+import { StyleSheet, Text, View, TextInput, Image, Pressable, ScrollView, SafeAreaView, ActivityIndicator, Alert, Animated, Dimensions } from 'react-native';
+import React, { useState, useRef } from 'react';
 import { extractMedia } from './lib/parser';
 
 type Media = {
@@ -10,13 +10,21 @@ type Media = {
   others: string[];
 };
 
+const TABS = ['Image', 'Audio', 'Video', 'Other'];
+const { width } = Dimensions.get('window');
+const contentWidth = width * 0.9;
+
+
 export default function App() {
   const [isInputFocused, setIsInputFocused] = useState(false);
 
   const [link, setLink] = useState('');
   const [media, setMedia] = useState<Media>({ images: [], audios: [], videos: [], others: [] });
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'Image' | 'Audio' | 'Video' | 'Other'>('Image');
+
+  const [activeTabIndex, setActiveTabIndex] = useState(0);
+  const animation = useRef(new Animated.Value(0)).current;
+
 
   const resolveUrl = (baseUrl: string, relativeUrl: string): string => {
     if (!relativeUrl) return '';
@@ -64,24 +72,29 @@ export default function App() {
     }
   };
 
-  const renderContent = () => {
-    if (isLoading) {
-      return <ActivityIndicator size="large" color={variables.accent} style={{ marginTop: 40 }} />;
-    }
+  const handleTabPress = (index: number) => {
+    setActiveTabIndex(index);
+    Animated.spring(animation, {
+      toValue: index,
+      useNativeDriver: true,
+      bounciness: 2,
+    }).start();
+  };
 
+  const renderContentForTab = (tabName: 'Image' | 'Audio' | 'Video' | 'Other') => {
     const dataMap = {
       Image: media.images,
       Audio: media.audios,
       Video: media.videos,
       Other: media.others
     };
-    const dataToRender = dataMap[activeTab];
+    const dataToRender = dataMap[tabName];
 
     if (dataToRender.length === 0) {
-      return <Text style={styles.noResultsText}>No {activeTab.toLowerCase()}s found.</Text>
+      return <Text style={styles.noResultsText}>No {tabName.toLowerCase()}s found.</Text>
     }
 
-    if (activeTab === 'Image') {
+    if (tabName === 'Image') {
       return dataToRender.map((url, index) => (
         <View key={`${url}-${index}`} style={styles.resultItem}>
           <Image source={{ uri: url }} style={styles.thumbnail} resizeMode="cover" />
@@ -96,6 +109,12 @@ export default function App() {
       </View>
     ));
   };
+
+  const translateX = animation.interpolate({
+    inputRange: TABS.map((_, i) => i),
+    outputRange: TABS.map((_, i) => -i * contentWidth),
+    extrapolate: 'clamp',
+  });
 
   return (
     <SafeAreaView style={styles.container}>
@@ -134,34 +153,42 @@ export default function App() {
 
       <View style={styles.resultContainer}>
         <View style={styles.tabContainer}>
-          <Pressable
-            android_ripple={{ color: '#444', borderless: false }}
-            onPress={() => setActiveTab('Image')}
-            style={[styles.tab, activeTab === 'Image' && styles.activeTab]}>
-            <Text style={styles.text}>Image ({media.images.length})</Text>
-          </Pressable>
-          <Pressable
-            android_ripple={{ color: '#444', borderless: false }}
-            onPress={() => setActiveTab('Audio')}
-            style={[styles.tab, activeTab === 'Audio' && styles.activeTab]}>
-            <Text style={styles.text}>Audio ({media.audios.length})</Text>
-          </Pressable>
-          <Pressable
-            android_ripple={{ color: '#444', borderless: false }}
-            onPress={() => setActiveTab('Video')}
-            style={[styles.tab, activeTab === 'Video' && styles.activeTab]}>
-            <Text style={styles.text}>Video ({media.videos.length})</Text>
-          </Pressable>
-          <Pressable
-            android_ripple={{ color: '#444', borderless: false }}
-            onPress={() => setActiveTab('Other')}
-            style={[styles.tab, activeTab === 'Other' && styles.activeTab]}>
-            <Text style={styles.text}>Other ({media.others.length})</Text>
-          </Pressable>
+          {TABS.map((tabName, index) => {
+            const mediaCounts = {
+              Image: media.images.length,
+              Audio: media.audios.length,
+              Video: media.videos.length,
+              Other: media.others.length
+            };
+            const count = mediaCounts[tabName as keyof typeof mediaCounts];
+
+            return (
+              <Pressable
+                key={tabName}
+                android_ripple={{ color: '#444', borderless: false }}
+                onPress={() => handleTabPress(index)}
+                style={[styles.tab, activeTabIndex === index && styles.activeTab]}>
+                <Text style={styles.text}>{`${tabName} (${count})`}</Text>
+              </Pressable>
+            )
+          })}
         </View>
-        <ScrollView contentContainerStyle={styles.results}>
-          {renderContent()}
-        </ScrollView>
+
+        {isLoading ? (
+          <ActivityIndicator size="large" color={variables.accent} style={{ marginTop: 40 }} />
+        ) : (
+          <Animated.View style={[styles.animatedContent, { transform: [{ translateX }] }]}>
+            {TABS.map((tabName) => (
+              <ScrollView
+                key={tabName}
+                style={{ width: contentWidth }}
+                contentContainerStyle={styles.results}
+              >
+                {renderContentForTab(tabName as any)}
+              </ScrollView>
+            ))}
+          </Animated.View>
+        )}
       </View>
       <StatusBar style="auto" />
     </SafeAreaView>
@@ -229,6 +256,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: '#1e1e1e',
     elevation: 4,
+    zIndex: 1,
   },
   tab: {
     padding: variables.spacing * 2,
@@ -240,6 +268,11 @@ const styles = StyleSheet.create({
   },
   activeTab: {
     borderBottomColor: variables.accent,
+  },
+  animatedContent: {
+    flex: 1,
+    flexDirection: 'row',
+    width: contentWidth * TABS.length,
   },
   results: {
     padding: variables.spacing,
