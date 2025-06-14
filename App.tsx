@@ -1,11 +1,101 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, Image, Pressable, ScrollView, SafeAreaView } from 'react-native';
+import { StyleSheet, Text, View, TextInput, Image, Pressable, ScrollView, SafeAreaView, ActivityIndicator, Alert } from 'react-native';
 import React, { useState } from 'react';
+import { extractMedia } from './lib/parser';
+
+type Media = {
+  images: string[];
+  audios: string[];
+  videos: string[];
+  others: string[];
+};
 
 export default function App() {
   const [isInputFocused, setIsInputFocused] = useState(false);
 
-  const testData = Array.from({ length: 60 }, (_, i) => i + 1);
+  const [link, setLink] = useState('');
+  const [media, setMedia] = useState<Media>({ images: [], audios: [], videos: [], others: [] });
+  const [isLoading, setIsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'Image' | 'Audio' | 'Video' | 'Other'>('Image');
+
+  const resolveUrl = (baseUrl: string, relativeUrl: string): string => {
+    if (!relativeUrl) return '';
+    if (relativeUrl.startsWith('http://') || relativeUrl.startsWith('https://')) {
+      return relativeUrl;
+    }
+    if (relativeUrl.startsWith('//')) {
+      return `https:${relativeUrl}`;
+    }
+    try {
+      return new URL(relativeUrl, baseUrl).href;
+    } catch (e) {
+      console.error(`Could not resolve URL: ${relativeUrl} with base: ${baseUrl}`);
+      return '';
+    }
+  };
+
+  const handlePluck = async () => {
+    if (!link.trim()) {
+      Alert.alert("Error", "Please paste a link first.");
+      return;
+    }
+    setIsLoading(true);
+    setMedia({ images: [], audios: [], videos: [], others: [] });
+
+    try {
+      const response = await fetch(link);
+      const html = await response.text();
+      const baseUrl = response.url;
+
+      const extracted = extractMedia(html);
+
+      setMedia({
+        images: extracted.images.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
+        audios: extracted.audios.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
+        videos: extracted.videos.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
+        others: []
+      });
+
+    } catch (error) {
+      console.error(error);
+      Alert.alert("Failed to pluck", "Could not fetch or parse the link. Please check the URL and your connection.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const renderContent = () => {
+    if (isLoading) {
+      return <ActivityIndicator size="large" color={variables.accent} style={{ marginTop: 40 }} />;
+    }
+
+    const dataMap = {
+      Image: media.images,
+      Audio: media.audios,
+      Video: media.videos,
+      Other: media.others
+    };
+    const dataToRender = dataMap[activeTab];
+
+    if (dataToRender.length === 0) {
+      return <Text style={styles.noResultsText}>No {activeTab.toLowerCase()}s found.</Text>
+    }
+
+    if (activeTab === 'Image') {
+      return dataToRender.map((url, index) => (
+        <View key={`${url}-${index}`} style={styles.resultItem}>
+          <Image source={{ uri: url }} style={styles.thumbnail} resizeMode="cover" />
+          <Text style={styles.linkText} selectable>{url}</Text>
+        </View>
+      ));
+    }
+
+    return dataToRender.map((url, index) => (
+      <View key={`${url}-${index}`} style={styles.resultItem}>
+        <Text style={styles.linkText} selectable>{url}</Text>
+      </View>
+    ));
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -27,67 +117,38 @@ export default function App() {
           autoCorrect={false}
           onFocus={() => setIsInputFocused(true)}
           onBlur={() => setIsInputFocused(false)}
+          onChangeText={setLink}
+          value={link}
         />
         <View style={styles.buttonWrapper}>
           <Pressable
-            android_ripple={{
-              color: '#aaa',
-              borderless: false,
-              radius: 60
-            }}
+            android_ripple={{ color: '#aaa', borderless: false, radius: 60 }}
             style={styles.pluckButton}
+            onPress={handlePluck}
+            disabled={isLoading}
           >
-            <Text style={styles.text}>Pluck</Text>
+            {isLoading ? <ActivityIndicator color="white" /> : <Text style={styles.text}>Pluck</Text>}
           </Pressable>
         </View>
       </View>
+
       <View style={styles.resultContainer}>
         <View style={styles.tabContainer}>
-          <Pressable
-            android_ripple={{
-              color: '#444',
-              borderless: false,
-              radius: 60
-            }}
-            style={styles.tab}
-          >
-            <Text style={styles.text}>Image</Text>
+          <Pressable onPress={() => setActiveTab('Image')} style={[styles.tab, activeTab === 'Image' && styles.activeTab]}>
+            <Text style={styles.text}>Image ({media.images.length})</Text>
           </Pressable>
-          <Pressable
-            android_ripple={{
-              color: '#444',
-              borderless: false,
-              radius: 60
-            }}
-            style={styles.tab}
-          >
-            <Text style={styles.text}>Audio</Text>
+          <Pressable onPress={() => setActiveTab('Audio')} style={[styles.tab, activeTab === 'Audio' && styles.activeTab]}>
+            <Text style={styles.text}>Audio ({media.audios.length})</Text>
           </Pressable>
-          <Pressable
-            android_ripple={{
-              color: '#444',
-              borderless: false,
-              radius: 60
-            }}
-            style={styles.tab}
-          >
-            <Text style={styles.text}>Video</Text>
+          <Pressable onPress={() => setActiveTab('Video')} style={[styles.tab, activeTab === 'Video' && styles.activeTab]}>
+            <Text style={styles.text}>Video ({media.videos.length})</Text>
           </Pressable>
-          <Pressable
-            android_ripple={{
-              color: '#444',
-              borderless: false,
-              radius: 60
-            }}
-            style={styles.tab}
-          >
-            <Text style={styles.text}>Other</Text>
+          <Pressable onPress={() => setActiveTab('Other')} style={[styles.tab, activeTab === 'Other' && styles.activeTab]}>
+            <Text style={styles.text}>Other ({media.others.length})</Text>
           </Pressable>
         </View>
-        <ScrollView style={styles.results}>
-          {testData.map(item => (
-            <Text key={item} style={styles.testItem}>Item {item}</Text>
-          ))}
+        <ScrollView contentContainerStyle={styles.results}>
+          {renderContent()}
         </ScrollView>
       </View>
       <StatusBar style="auto" />
@@ -142,6 +203,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     height: '100%',
+    minWidth: 70,
   },
   resultContainer: {
     flex: 1,
@@ -153,25 +215,48 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: '#121212',
-    elevation: 12
+    backgroundColor: '#1e1e1e',
+    elevation: 4,
   },
   tab: {
     padding: variables.spacing * 2,
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: 'transparent',
+  },
+  activeTab: {
+    borderBottomColor: variables.accent,
   },
   results: {
+    padding: variables.spacing,
+  },
+  noResultsText: {
+    color: 'gray',
+    textAlign: 'center',
+    marginTop: 40,
+    fontSize: 16,
+  },
+  resultItem: {
+    backgroundColor: '#282828',
+    padding: variables.spacing,
+    borderRadius: variables.spacing,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: variables.spacing
+  },
+  thumbnail: {
+    width: 50,
+    height: 50,
+    borderRadius: variables.spacing / 2,
+    marginRight: variables.spacing * 1.5,
+    backgroundColor: '#444'
+  },
+  linkText: {
+    color: '#eee',
     flex: 1,
   },
-  testItem: {
-    color: 'white',
-    padding: 10,
-    fontSize: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333'
-  }
 });
 
 const hStyles = StyleSheet.create({
