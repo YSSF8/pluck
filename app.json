@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "pluck",
+    "name": "Pluck",
     "slug": "pluck",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -13,17 +13,24 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.siifu.pluck"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.siifu.pluck"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e5ed32b7-e15f-4c85-8b1b-3132f802af38"
+      }
     }
   }
 }
