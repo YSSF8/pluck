@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
     width: '90%',
     backgroundColor: '#121212',
     overflow: 'hidden',
-    borderRadius: variables.spacing,
+    borderRadius: variables.spacing * 2,
     marginTop: variables.spacing * 3,
   },
   tabContainer: {
