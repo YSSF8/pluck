@@ -134,54 +134,64 @@ export default function App() {
     }
 
     setIsDownloading(true);
+    let asset = null;
 
     try {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please grant permission to save files.');
-        return;
+      let permissions = await MediaLibrary.getPermissionsAsync();
+      if (permissions.status !== 'granted') {
+        if (permissions.canAskAgain) {
+          const { status } = await MediaLibrary.requestPermissionsAsync();
+          if (status !== 'granted') {
+            Alert.alert('Permission Required', 'Please grant permission to save files to continue.');
+            setIsDownloading(false);
+            return;
+          }
+        } else {
+          Alert.alert('Permission Required', 'Please go to your device settings to enable media library access for Pluck.');
+          setIsDownloading(false);
+          return;
+        }
       }
 
       const filename = new URL(url).pathname.split('/').pop() || `pluck-download-${Date.now()}`;
       const fileUri = FileSystem.documentDirectory + filename;
 
-      const progressCallback = (downloadProgress: DownloadProgressData) => {
-        const progress = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
+      const progressCallback = (progress: DownloadProgressData) => {
         setDownloads(prev => ({
           ...prev,
-          [url]: { progress },
+          [url]: { progress: progress.totalBytesWritten / progress.totalBytesExpectedToWrite },
         }));
       };
 
-      const downloadResumable = FileSystem.createDownloadResumable(
-        url,
-        fileUri,
-        {},
-        progressCallback
-      );
-
+      const downloadResumable = FileSystem.createDownloadResumable(url, fileUri, {}, progressCallback);
       setDownloads(prev => ({ ...prev, [url]: { progress: 0 } }));
 
       const result = await downloadResumable.downloadAsync();
-      if (!result) {
-        throw new Error("Download failed, no result object returned.");
+      if (!result) throw new Error("Download failed, no result object returned.");
+
+      asset = await MediaLibrary.createAssetAsync(result.uri);
+
+      try {
+        const albumName = `Pluck/${tabName}`;
+        let album = await MediaLibrary.getAlbumAsync(albumName);
+
+        if (album == null) {
+          await MediaLibrary.createAlbumAsync(albumName, asset, false);
+        } else {
+          await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+        }
+      } catch (albumError) {
+        console.warn('Could not organize file into album. The file is saved to your main library.', albumError);
       }
 
-      const asset = await MediaLibrary.createAssetAsync(result.uri);
-      const albumName = `Pluck/${tabName}`;
-      let album = await MediaLibrary.getAlbumAsync(albumName);
-
-      if (album == null) {
-        await MediaLibrary.createAlbumAsync(albumName, asset, false);
-      } else {
-        await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
-      }
-
-      Alert.alert('Success!', `${filename} has been saved to your "${albumName}" album.`);
+      Alert.alert(
+        'Success!',
+        `${filename} has been saved to your device's media library.`
+      );
 
     } catch (e) {
       console.error(e);
-      Alert.alert('Download Failed', 'An error occurred while trying to download the file.');
+      Alert.alert('Download Failed', 'A critical error occurred while trying to download the file.');
     } finally {
       setDownloads(prev => {
         const newDownloads = { ...prev };
