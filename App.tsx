@@ -2,6 +2,9 @@ import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TextInput, Image, Pressable, ScrollView, SafeAreaView, ActivityIndicator, Alert, Animated, Dimensions } from 'react-native';
 import React, { useState, useRef } from 'react';
 import { extractMedia } from './lib/parser';
+import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
+import { Feather } from '@expo/vector-icons';
 
 type Media = {
   images: string[];
@@ -17,14 +20,11 @@ const contentWidth = width * 0.9;
 
 export default function App() {
   const [isInputFocused, setIsInputFocused] = useState(false);
-
   const [link, setLink] = useState('');
   const [media, setMedia] = useState<Media>({ images: [], audios: [], videos: [], others: [] });
   const [isLoading, setIsLoading] = useState(false);
-
   const [activeTabIndex, setActiveTabIndex] = useState(0);
   const animation = useRef(new Animated.Value(0)).current;
-
 
   const resolveUrl = (baseUrl: string, relativeUrl: string): string => {
     if (!relativeUrl) return '';
@@ -54,16 +54,13 @@ export default function App() {
       const response = await fetch(link);
       const html = await response.text();
       const baseUrl = response.url;
-
       const extracted = extractMedia(html);
-
       setMedia({
         images: extracted.images.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
         audios: extracted.audios.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
         videos: extracted.videos.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
         others: []
       });
-
     } catch (error) {
       console.error(error);
       Alert.alert('Failed to pluck', 'Could not fetch or parse the link. Please check the URL and your connection.');
@@ -81,6 +78,45 @@ export default function App() {
     }).start();
   };
 
+  const handleDownload = async (url: string, tabName: string) => {
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Please grant permission to save files to your media library.'
+        );
+        return;
+      }
+
+      const filename = url.split('/').pop()?.split('?')[0] || `pluck-download-${Date.now()}`;
+      const fileUri = FileSystem.documentDirectory + filename;
+
+      Alert.alert('Starting Download', `Downloading ${filename}...`);
+
+      const { uri: localUri } = await FileSystem.downloadAsync(url, fileUri);
+
+      const asset = await MediaLibrary.createAssetAsync(localUri);
+
+      const albumName = `Pluck/${tabName}`;
+      const album = await MediaLibrary.getAlbumAsync(albumName);
+
+      if (album == null) {
+        await MediaLibrary.createAlbumAsync(albumName, asset, false);
+      } else {
+        await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+      }
+
+      Alert.alert(
+        'Success!',
+        `${filename} has been saved to your "${albumName}" album.`
+      );
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Download Failed', 'An error occurred while trying to download the file.');
+    }
+  };
+
   const renderContentForTab = (tabName: 'Image' | 'Audio' | 'Video' | 'Other') => {
     const dataMap = {
       Image: media.images,
@@ -94,21 +130,23 @@ export default function App() {
       return <Text style={styles.noResultsText}>No {tabName.toLowerCase()}s found.</Text>
     }
 
-    if (tabName === 'Image') {
-      return dataToRender.map((url, index) => (
-        <View key={`${url}-${index}`} style={styles.resultItem}>
-          <Image source={{ uri: url }} style={styles.thumbnail} resizeMode="cover" />
-          <Text style={styles.linkText} selectable>{url}</Text>
-        </View>
-      ));
-    }
-
     return dataToRender.map((url, index) => (
       <View key={`${url}-${index}`} style={styles.resultItem}>
-        <Text style={styles.linkText} selectable>{url}</Text>
+        {tabName === 'Image' && (
+          <Image source={{ uri: url }} style={styles.thumbnail} resizeMode="cover" />
+        )}
+        <Text style={styles.linkText} selectable numberOfLines={2} ellipsizeMode="middle">{url}</Text>
+        <Pressable
+          style={styles.downloadButton}
+          onPress={() => handleDownload(url, tabName)}
+          android_ripple={{ color: '#aaa', borderless: true, radius: 24 }}
+        >
+          <Feather name="download-cloud" size={24} color={variables.accent} />
+        </Pressable>
       </View>
     ));
   };
+
 
   const translateX = animation.interpolate({
     inputRange: TABS.map((_, i) => i),
@@ -168,7 +206,7 @@ export default function App() {
                 android_ripple={{ color: '#444', borderless: false }}
                 onPress={() => handleTabPress(index)}
                 style={[styles.tab, activeTabIndex === index && styles.activeTab]}>
-                <Text style={[styles.text, { textAlign: 'center' }]}>{`${tabName} (${count})`}</Text>
+                <Text style={[styles.text, { textAlign: 'center' }]}>{`${tabName}\n(${count})`}</Text>
               </Pressable>
             )
           })}
@@ -259,7 +297,8 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   tab: {
-    padding: variables.spacing * 2,
+    paddingVertical: variables.spacing * 1.5,
+    paddingHorizontal: variables.spacing,
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -289,18 +328,25 @@ const styles = StyleSheet.create({
     borderRadius: variables.spacing,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: variables.spacing
+    marginBottom: variables.spacing,
+    justifyContent: 'space-between',
   },
   thumbnail: {
     width: 50,
     height: 50,
     borderRadius: variables.spacing / 2,
-    marginRight: variables.spacing * 1.5,
+    marginRight: variables.spacing,
     backgroundColor: '#444'
   },
   linkText: {
     color: '#eee',
     flex: 1,
+    marginRight: variables.spacing,
+  },
+  downloadButton: {
+    padding: variables.spacing,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 
