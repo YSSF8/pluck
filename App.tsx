@@ -2,6 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TextInput, Image, Pressable, ScrollView, SafeAreaView, ActivityIndicator, Alert, Animated, Dimensions } from 'react-native';
 import React, { useState, useRef } from 'react';
 import { extractMedia } from './lib/parser';
+
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import { Feather } from '@expo/vector-icons';
@@ -16,6 +17,28 @@ type Media = {
 const TABS = ['Image', 'Audio', 'Video', 'Other'];
 const { width } = Dimensions.get('window');
 const contentWidth = width * 0.9;
+
+
+const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'];
+const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.ogg', '.aac', '.m4a'];
+const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.webm', '.mkv', '.flv'];
+
+/**
+ * Checks if a URL points directly to a media file and returns its category.
+ * @param url The URL to check.
+ * @returns The media category ('Image', 'Audio', 'Video') or null if not a direct media link.
+ */
+const getDirectMediaCategory = (url: string): 'Image' | 'Audio' | 'Video' | null => {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    if (IMAGE_EXTENSIONS.some(ext => pathname.endsWith(ext))) return 'Image';
+    if (AUDIO_EXTENSIONS.some(ext => pathname.endsWith(ext))) return 'Audio';
+    if (VIDEO_EXTENSIONS.some(ext => pathname.endsWith(ext))) return 'Video';
+  } catch (error) {
+    return null;
+  }
+  return null;
+};
 
 
 export default function App() {
@@ -48,19 +71,37 @@ export default function App() {
       return;
     }
     setIsLoading(true);
-    setMedia({ images: [], audios: [], videos: [], others: [] });
 
     try {
-      const response = await fetch(link);
-      const html = await response.text();
-      const baseUrl = response.url;
-      const extracted = extractMedia(html);
-      setMedia({
-        images: extracted.images.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
-        audios: extracted.audios.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
-        videos: extracted.videos.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
-        others: []
-      });
+      const directMediaCategory = getDirectMediaCategory(link);
+
+      if (directMediaCategory) {
+        const newMediaState: Media = { images: [], audios: [], videos: [], others: [] };
+
+        if (directMediaCategory === 'Image') newMediaState.images.push(link);
+        if (directMediaCategory === 'Audio') newMediaState.audios.push(link);
+        if (directMediaCategory === 'Video') newMediaState.videos.push(link);
+
+        setMedia(newMediaState);
+
+        const tabIndex = TABS.indexOf(directMediaCategory);
+        if (tabIndex !== -1) {
+          handleTabPress(tabIndex);
+        }
+      } else {
+        setMedia({ images: [], audios: [], videos: [], others: [] });
+        const response = await fetch(link);
+        const html = await response.text();
+        const baseUrl = response.url;
+        const extracted = extractMedia(html);
+        setMedia({
+          images: extracted.images.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
+          audios: extracted.audios.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
+          videos: extracted.videos.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
+          others: []
+        });
+        handleTabPress(0);
+      }
     } catch (error) {
       console.error(error);
       Alert.alert('Failed to pluck', 'Could not fetch or parse the link. Please check the URL and your connection.');
@@ -82,35 +123,27 @@ export default function App() {
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(
-          'Permission Required',
-          'Please grant permission to save files to your media library.'
-        );
+        Alert.alert('Permission Required', 'Please grant permission to save files.');
         return;
       }
 
-      const filename = url.split('/').pop()?.split('?')[0] || `pluck-download-${Date.now()}`;
+      const filename = new URL(url).pathname.split('/').pop() || `pluck-download-${Date.now()}`;
       const fileUri = FileSystem.documentDirectory + filename;
 
       Alert.alert('Starting Download', `Downloading ${filename}...`);
 
       const { uri: localUri } = await FileSystem.downloadAsync(url, fileUri);
-
       const asset = await MediaLibrary.createAssetAsync(localUri);
-
       const albumName = `Pluck/${tabName}`;
-      const album = await MediaLibrary.getAlbumAsync(albumName);
+      let album = await MediaLibrary.getAlbumAsync(albumName);
 
       if (album == null) {
-        await MediaLibrary.createAlbumAsync(albumName, asset, false);
+        album = await MediaLibrary.createAlbumAsync(albumName, asset, false);
       } else {
         await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
       }
 
-      Alert.alert(
-        'Success!',
-        `${filename} has been saved to your "${albumName}" album.`
-      );
+      Alert.alert('Success!', `${filename} has been saved to your "${albumName}" album.`);
     } catch (e) {
       console.error(e);
       Alert.alert('Download Failed', 'An error occurred while trying to download the file.');
@@ -351,40 +384,10 @@ const styles = StyleSheet.create({
 });
 
 const hStyles = StyleSheet.create({
-  h1: {
-    fontWeight: 'bold',
-    fontSize: 32,
-    marginTop: 24,
-    marginBottom: 16,
-  },
-  h2: {
-    fontWeight: 'bold',
-    fontSize: 24,
-    marginTop: 20,
-    marginBottom: 14,
-  },
-  h3: {
-    fontWeight: 'bold',
-    fontSize: 18.72,
-    marginTop: 16,
-    marginBottom: 12,
-  },
-  h4: {
-    fontWeight: 'bold',
-    fontSize: 16,
-    marginTop: 14,
-    marginBottom: 10,
-  },
-  h5: {
-    fontWeight: 'bold',
-    fontSize: 13.28,
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  h6: {
-    fontWeight: 'bold',
-    fontSize: 10.72,
-    marginTop: 10,
-    marginBottom: 6,
-  },
+  h1: { fontWeight: 'bold', fontSize: 32, marginTop: 24, marginBottom: 16, },
+  h2: { fontWeight: 'bold', fontSize: 24, marginTop: 20, marginBottom: 14, },
+  h3: { fontWeight: 'bold', fontSize: 18.72, marginTop: 16, marginBottom: 12, },
+  h4: { fontWeight: 'bold', fontSize: 16, marginTop: 14, marginBottom: 10, },
+  h5: { fontWeight: 'bold', fontSize: 13.28, marginTop: 12, marginBottom: 8, },
+  h6: { fontWeight: 'bold', fontSize: 10.72, marginTop: 10, marginBottom: 6, },
 });
