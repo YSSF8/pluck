@@ -44,7 +44,7 @@ export default function App() {
 
   const handlePluck = async () => {
     if (!link.trim()) {
-      Alert.alert("Error", "Please paste a link first.");
+      Alert.alert('Error', 'Please paste a link first.');
       return;
     }
     setIsLoading(true);
@@ -66,7 +66,7 @@ export default function App() {
 
     } catch (error) {
       console.error(error);
-      Alert.alert("Failed to pluck", "Could not fetch or parse the link. Please check the URL and your connection.");
+      Alert.alert('Failed to pluck', 'Could not fetch or parse the link. Please check the URL and your connection.');
     } finally {
       setIsLoading(false);
     }
@@ -168,7 +168,7 @@ export default function App() {
                 android_ripple={{ color: '#444', borderless: false }}
                 onPress={() => handleTabPress(index)}
                 style={[styles.tab, activeTabIndex === index && styles.activeTab]}>
-                <Text style={styles.text}>{`${tabName} (${count})`}</Text>
+                <Text style={[styles.text, { textAlign: 'center' }]}>{`${tabName} (${count})`}</Text>
               </Pressable>
             )
           })}
