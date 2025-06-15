@@ -4,7 +4,7 @@
 
 **Pluck** is an intuitive and powerful mobile utility designed to effortlessly extract and download media (images, audio, videos) from any webpage. Simply paste a link, and Pluck intelligently finds all downloadable media, organizes it by type, and allows you to save it directly to your device with a single tap.
 
-[!▶️ Preview](preview.gif)
+![▶️ Preview](preview.gif)
 
 ---
 
