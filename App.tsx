@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, Image, Pressable, ScrollView, SafeAreaView, ActivityIndicator, Alert, Animated, Dimensions } from 'react-native';
+import { StyleSheet, Text, View, TextInput, Image, Pressable, ScrollView, SafeAreaView, ActivityIndicator, Alert, Animated, Dimensions, Modal, ImageStyle } from 'react-native';
 import React, { useState, useRef } from 'react';
 import { extractMedia } from './lib/parser';
 
@@ -22,8 +22,8 @@ type DownloadTracker = {
 };
 
 const TABS = ['Image', 'Audio', 'Video', 'Other'];
-const { width } = Dimensions.get('window');
-const contentWidth = width * 0.9;
+const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
+const contentWidth = windowWidth * 0.9;
 
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'];
 const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.ogg', '.aac', '.m4a'];
@@ -68,6 +68,12 @@ export default function App() {
 
   const [downloads, setDownloads] = useState<DownloadTracker>({});
   const [isDownloading, setIsDownloading] = useState(false);
+
+  const [activeImage, setActiveImage] = useState<string | null>(null);
+  const [sourceImageGeometry, setSourceImageGeometry] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const [targetImageGeometry, setTargetImageGeometry] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const imageOpenAnim = useRef(new Animated.Value(0)).current;
+  const imageRefs = useRef<{ [key: string]: View | null }>({});
 
 
   const resolveUrl = (baseUrl: string, relativeUrl: string): string => {
@@ -132,7 +138,6 @@ export default function App() {
       Alert.alert('Please wait', 'Another download is already in progress.');
       return;
     }
-
     setIsDownloading(true);
     let asset = null;
 
@@ -202,6 +207,53 @@ export default function App() {
     }
   };
 
+  const openImage = (url: string) => {
+    const sourceRef = imageRefs.current[url];
+    if (!sourceRef) return;
+
+    sourceRef.measure((_fx: number, _fy: number, width: number, height: number, px: number, py: number) => {
+      setSourceImageGeometry({ x: px, y: py, width, height });
+
+      Image.getSize(url, (imgWidth, imgHeight) => {
+        const aspectRatio = imgWidth / imgHeight;
+        let targetWidth = windowWidth;
+        let targetHeight = targetWidth / aspectRatio;
+
+        if (targetHeight > windowHeight) {
+          targetHeight = windowHeight;
+          targetWidth = targetHeight * aspectRatio;
+        }
+
+        const targetX = (windowWidth - targetWidth) / 2;
+        const targetY = (windowHeight - targetHeight) / 2;
+
+        setTargetImageGeometry({ x: targetX, y: targetY, width: targetWidth, height: targetHeight });
+        setActiveImage(url);
+
+        imageOpenAnim.setValue(0);
+        Animated.timing(imageOpenAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: false,
+        }).start();
+
+      }, (error) => {
+        console.error(`Couldn't get image size: ${error.message}`);
+        Alert.alert("Error", "Could not load image dimensions for animation.");
+      });
+    });
+  };
+
+  const closeImage = () => {
+    Animated.timing(imageOpenAnim, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: false,
+    }).start(() => {
+      setActiveImage(null);
+    });
+  };
+
   const renderContentForTab = (tabName: 'Image' | 'Audio' | 'Video' | 'Other') => {
     const dataMap = { Image: media.images, Audio: media.audios, Video: media.videos, Other: media.others };
     const dataToRender = dataMap[tabName];
@@ -217,7 +269,19 @@ export default function App() {
         <View key={`${url}-${index}`} style={styles.resultItemContainer}>
           <View style={styles.resultItem}>
             {tabName === 'Image' && (
-              <Image source={{ uri: url }} style={styles.thumbnail} resizeMode="cover" />
+              <Pressable
+                ref={el => { imageRefs.current[url] = el; }}
+                onPress={() => openImage(url)}
+              >
+                <Animated.Image
+                  source={{ uri: url }}
+                  style={[
+                    styles.thumbnail,
+                    { opacity: activeImage === url ? 0 : 1 }
+                  ]}
+                  resizeMode="cover"
+                />
+              </Pressable>
             )}
             <Text style={styles.linkText} selectable numberOfLines={2} ellipsizeMode="middle">{url}</Text>
             <Pressable
@@ -244,6 +308,35 @@ export default function App() {
     outputRange: TABS.map((_, i) => -i * contentWidth),
     extrapolate: 'clamp',
   });
+
+  const renderImageViewer = () => {
+    if (!activeImage) return null;
+
+    const animatedImageStyle = {
+      position: 'absolute' as const,
+      left: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [sourceImageGeometry.x, targetImageGeometry.x] }),
+      top: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [sourceImageGeometry.y, targetImageGeometry.y] }),
+      width: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [sourceImageGeometry.width, targetImageGeometry.width] }),
+      height: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [sourceImageGeometry.height, targetImageGeometry.height] }),
+      borderRadius: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [variables.spacing / 2, 0] }),
+    };
+
+    const animatedBackdropStyle = {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'black',
+      opacity: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.9] }),
+    };
+
+    return (
+      <Modal visible={activeImage !== null} transparent hardwareAccelerated onRequestClose={closeImage}>
+        <View style={styles.imageViewerContainer}>
+          <Animated.View style={animatedBackdropStyle} />
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeImage} />
+          <Animated.Image source={{ uri: activeImage }} style={animatedImageStyle} resizeMode="contain" />
+        </View>
+      </Modal>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -294,6 +387,7 @@ export default function App() {
         )}
       </View>
       <StatusBar style="auto" />
+      {renderImageViewer()}
     </SafeAreaView>
   );
 }
@@ -423,6 +517,9 @@ const styles = StyleSheet.create({
   progressBarForeground: {
     height: '100%',
     backgroundColor: variables.accent,
+  },
+  imageViewerContainer: {
+    flex: 1,
   },
 });
 
