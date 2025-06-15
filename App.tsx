@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, Image, Pressable, ScrollView, SafeAreaView, ActivityIndicator, Alert, Animated, Dimensions, Modal, ImageStyle } from 'react-native';
+import { StyleSheet, Text, View, TextInput, Image, Pressable, ScrollView, SafeAreaView, ActivityIndicator, Alert, Animated, Dimensions, Modal } from 'react-native';
 import React, { useState, useRef } from 'react';
 import { extractMedia } from './lib/parser';
 
@@ -12,7 +12,6 @@ type Media = {
   images: string[];
   audios: string[];
   videos: string[];
-  others: string[];
 };
 
 type DownloadTracker = {
@@ -21,7 +20,7 @@ type DownloadTracker = {
   };
 };
 
-const TABS = ['Image', 'Audio', 'Video', 'Other'];
+const TABS = ['All', 'Image', 'Audio', 'Video'];
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 const contentWidth = windowWidth * 0.9;
 
@@ -57,11 +56,49 @@ const ProgressBar = ({ progress }: { progress: number }) => {
   );
 };
 
+const MediaItem = ({ url, category, downloadInfo, isDownloading, onDownload, onOpenImage, imageRef, activeImage }: any) => {
+  return (
+    <View style={styles.resultItemContainer}>
+      <View style={styles.resultItem}>
+        {category === 'Image' && (
+          <Pressable
+            ref={imageRef}
+            onPress={() => onOpenImage(url)}
+          >
+            <Animated.Image
+              source={{ uri: url }}
+              style={[
+                styles.thumbnail,
+                { opacity: activeImage === url ? 0 : 1 }
+              ]}
+              resizeMode="cover"
+            />
+          </Pressable>
+        )}
+        <Text style={styles.linkText} selectable numberOfLines={2} ellipsizeMode="middle">{url}</Text>
+        <Pressable
+          style={styles.downloadButton}
+          onPress={() => onDownload(url, category)}
+          disabled={isDownloading}
+          android_ripple={{ color: '#aaa', borderless: true, radius: 24 }}
+        >
+          {downloadInfo ? (
+            <ActivityIndicator color={variables.accent} />
+          ) : (
+            <Feather name="download-cloud" size={24} color={isDownloading ? 'gray' : variables.accent} />
+          )}
+        </Pressable>
+      </View>
+      {downloadInfo && <ProgressBar progress={downloadInfo.progress} />}
+    </View>
+  );
+};
+
 
 export default function App() {
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [link, setLink] = useState('');
-  const [media, setMedia] = useState<Media>({ images: [], audios: [], videos: [], others: [] });
+  const [media, setMedia] = useState<Media>({ images: [], audios: [], videos: [] });
   const [isLoading, setIsLoading] = useState(false);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
   const animation = useRef(new Animated.Value(0)).current;
@@ -99,7 +136,7 @@ export default function App() {
     try {
       const directMediaCategory = getDirectMediaCategory(link);
       if (directMediaCategory) {
-        const newMediaState: Media = { images: [], audios: [], videos: [], others: [] };
+        const newMediaState: Media = { images: [], audios: [], videos: [] };
         if (directMediaCategory === 'Image') newMediaState.images.push(link);
         if (directMediaCategory === 'Audio') newMediaState.audios.push(link);
         if (directMediaCategory === 'Video') newMediaState.videos.push(link);
@@ -107,7 +144,7 @@ export default function App() {
         const tabIndex = TABS.indexOf(directMediaCategory);
         if (tabIndex !== -1) handleTabPress(tabIndex);
       } else {
-        setMedia({ images: [], audios: [], videos: [], others: [] });
+        setMedia({ images: [], audios: [], videos: [] });
         const response = await fetch(link);
         const html = await response.text();
         const baseUrl = response.url;
@@ -116,7 +153,6 @@ export default function App() {
           images: extracted.images.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
           audios: extracted.audios.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
           videos: extracted.videos.map(url => resolveUrl(baseUrl, url)).filter(Boolean),
-          others: []
         });
         handleTabPress(0);
       }
@@ -254,51 +290,37 @@ export default function App() {
     });
   };
 
-  const renderContentForTab = (tabName: 'Image' | 'Audio' | 'Video' | 'Other') => {
-    const dataMap = { Image: media.images, Audio: media.audios, Video: media.videos, Other: media.others };
-    const dataToRender = dataMap[tabName];
+  const renderContentForTab = (tabName: 'All' | 'Image' | 'Audio' | 'Video') => {
+    let dataToRender: string[] = [];
+
+    if (tabName === 'All') {
+      dataToRender = [...media.images, ...media.audios, ...media.videos];
+    } else {
+      const dataMap = { Image: media.images, Audio: media.audios, Video: media.videos };
+      dataToRender = dataMap[tabName];
+    }
 
     if (dataToRender.length === 0) {
-      return <Text style={styles.noResultsText}>No {tabName.toLowerCase()}s found.</Text>
+      const message = tabName === 'All' ? 'No media found.' : `No ${tabName.toLowerCase()}s found.`;
+      return <Text style={styles.noResultsText}>{message}</Text>;
     }
 
     return dataToRender.map((url, index) => {
-      const downloadInfo = downloads[url];
+      const category = tabName === 'All' ? getDirectMediaCategory(url) : tabName;
+      if (!category) return null;
 
       return (
-        <View key={`${url}-${index}`} style={styles.resultItemContainer}>
-          <View style={styles.resultItem}>
-            {tabName === 'Image' && (
-              <Pressable
-                ref={el => { imageRefs.current[url] = el; }}
-                onPress={() => openImage(url)}
-              >
-                <Animated.Image
-                  source={{ uri: url }}
-                  style={[
-                    styles.thumbnail,
-                    { opacity: activeImage === url ? 0 : 1 }
-                  ]}
-                  resizeMode="cover"
-                />
-              </Pressable>
-            )}
-            <Text style={styles.linkText} selectable numberOfLines={2} ellipsizeMode="middle">{url}</Text>
-            <Pressable
-              style={styles.downloadButton}
-              onPress={() => handleDownload(url, tabName)}
-              disabled={isDownloading}
-              android_ripple={{ color: '#aaa', borderless: true, radius: 24 }}
-            >
-              {downloadInfo ? (
-                <ActivityIndicator color={variables.accent} />
-              ) : (
-                <Feather name="download-cloud" size={24} color={isDownloading ? 'gray' : variables.accent} />
-              )}
-            </Pressable>
-          </View>
-          {downloadInfo && <ProgressBar progress={downloadInfo.progress} />}
-        </View>
+        <MediaItem
+          key={`${url}-${index}`}
+          url={url}
+          category={category}
+          downloadInfo={downloads[url]}
+          isDownloading={isDownloading}
+          onDownload={handleDownload}
+          onOpenImage={openImage}
+          imageRef={(el: View | null) => { imageRefs.current[url] = el; }}
+          activeImage={activeImage}
+        />
       );
     });
   };
@@ -362,8 +384,14 @@ export default function App() {
       <View style={styles.resultContainer}>
         <View style={styles.tabContainer}>
           {TABS.map((tabName, index) => {
-            const mediaCounts = { Image: media.images.length, Audio: media.audios.length, Video: media.videos.length, Other: media.others.length };
-            const count = mediaCounts[tabName as keyof typeof mediaCounts];
+            let count = 0;
+            if (tabName === 'All') {
+              count = media.images.length + media.audios.length + media.videos.length;
+            } else {
+              const dataMap = { Image: media.images, Audio: media.audios, Video: media.videos };
+              count = dataMap[tabName as keyof typeof dataMap]?.length || 0;
+            }
+
             return (
               <Pressable key={tabName} android_ripple={{ color: '#444', borderless: false }}
                 onPress={() => handleTabPress(index)}
