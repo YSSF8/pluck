@@ -56,14 +56,14 @@ const ProgressBar = ({ progress }: { progress: number }) => {
   );
 };
 
-const MediaItem = ({ url, category, downloadInfo, isDownloading, onDownload, onOpenImage, imageRef, activeImage }: any) => {
+const MediaItem = ({ url, category, downloadInfo, isDownloading, onDownload, onOpenImage, imageRef, activeImage, tabName }: any) => {
   return (
     <View style={styles.resultItemContainer}>
       <View style={styles.resultItem}>
         {category === 'Image' && (
           <Pressable
             ref={imageRef}
-            onPress={() => onOpenImage(url)}
+            onPress={() => onOpenImage(url, tabName)}
           >
             <Animated.Image
               source={{ uri: url }}
@@ -243,8 +243,8 @@ export default function App() {
     }
   };
 
-  const openImage = (url: string) => {
-    const sourceRef = imageRefs.current[url];
+  const openImage = (url: string, tabName: string) => {
+    const sourceRef = imageRefs.current[`${tabName}-${url}`];
     if (!sourceRef) return;
 
     sourceRef.measure((_fx: number, _fy: number, width: number, height: number, px: number, py: number) => {
@@ -311,14 +311,15 @@ export default function App() {
 
       return (
         <MediaItem
-          key={`${url}-${index}`}
+          key={`${tabName}-${url}-${index}`}
           url={url}
           category={category}
+          tabName={tabName}
           downloadInfo={downloads[url]}
           isDownloading={isDownloading}
           onDownload={handleDownload}
           onOpenImage={openImage}
-          imageRef={(el: View | null) => { imageRefs.current[url] = el; }}
+          imageRef={(el: View | null) => { imageRefs.current[`${tabName}-${url}`] = el; }}
           activeImage={activeImage}
         />
       );
