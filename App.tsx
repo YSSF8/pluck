@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TextInput, Image, Pressable, ScrollView, SafeAreaView, ActivityIndicator, Alert, Animated, Dimensions, Modal } from 'react-native';
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { extractMedia } from './lib/parser';
 
 import * as FileSystem from 'expo-file-system';
@@ -112,6 +112,17 @@ export default function App() {
   const imageOpenAnim = useRef(new Animated.Value(0)).current;
   const imageRefs = useRef<{ [key: string]: View | null }>({});
 
+  useEffect(() => {
+    if (activeImage) {
+      imageOpenAnim.setValue(0);
+      Animated.spring(imageOpenAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        bounciness: 8,
+        speed: 14,
+      }).start();
+    }
+  }, [activeImage]);
 
   const resolveUrl = (baseUrl: string, relativeUrl: string): string => {
     if (!relativeUrl) return '';
@@ -247,7 +258,7 @@ export default function App() {
     const sourceRef = imageRefs.current[`${tabName}-${url}`];
     if (!sourceRef) return;
 
-    sourceRef.measure((_fx: number, _fy: number, width: number, height: number, px: number, py: number) => {
+    sourceRef.measure((_fx, _fy, width, height, px, py) => {
       setSourceImageGeometry({ x: px, y: py, width, height });
 
       Image.getSize(url, (imgWidth, imgHeight) => {
@@ -266,13 +277,6 @@ export default function App() {
         setTargetImageGeometry({ x: targetX, y: targetY, width: targetWidth, height: targetHeight });
         setActiveImage(url);
 
-        imageOpenAnim.setValue(0);
-        Animated.timing(imageOpenAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: false,
-        }).start();
-
       }, (error) => {
         console.error(`Couldn't get image size: ${error.message}`);
         Alert.alert("Error", "Could not load image dimensions for animation.");
@@ -281,12 +285,14 @@ export default function App() {
   };
 
   const closeImage = () => {
-    Animated.timing(imageOpenAnim, {
+    Animated.spring(imageOpenAnim, {
       toValue: 0,
-      duration: 300,
-      useNativeDriver: false,
+      useNativeDriver: true,
+      bounciness: 8,
+      speed: 14,
     }).start(() => {
       setActiveImage(null);
+      setSourceImageGeometry({ x: 0, y: 0, width: 0, height: 0 });
     });
   };
 
@@ -333,15 +339,38 @@ export default function App() {
   });
 
   const renderImageViewer = () => {
-    if (!activeImage) return null;
+    if (!activeImage || !sourceImageGeometry.width) return null;
+
+    const translateCenterX = (windowWidth / 2) - (sourceImageGeometry.x + sourceImageGeometry.width / 2);
+    const translateCenterY = (windowHeight / 2) - (sourceImageGeometry.y + sourceImageGeometry.height / 2);
 
     const animatedImageStyle = {
       position: 'absolute' as const,
-      left: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [sourceImageGeometry.x, targetImageGeometry.x] }),
-      top: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [sourceImageGeometry.y, targetImageGeometry.y] }),
-      width: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [sourceImageGeometry.width, targetImageGeometry.width] }),
-      height: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [sourceImageGeometry.height, targetImageGeometry.height] }),
-      borderRadius: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [variables.spacing / 2, 0] }),
+      left: sourceImageGeometry.x,
+      top: sourceImageGeometry.y,
+      width: sourceImageGeometry.width,
+      height: sourceImageGeometry.height,
+      opacity: imageOpenAnim,
+      transform: [
+        {
+          translateX: imageOpenAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0, translateCenterX],
+          }),
+        },
+        {
+          translateY: imageOpenAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0, translateCenterY],
+          }),
+        },
+        {
+          scale: imageOpenAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, targetImageGeometry.width / sourceImageGeometry.width],
+          }),
+        },
+      ],
     };
 
     const animatedBackdropStyle = {
