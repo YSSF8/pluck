@@ -57,14 +57,20 @@ const ProgressBar = ({ progress }: { progress: number }) => {
 };
 
 const MediaItem = ({ url, category, downloadInfo, isDownloading, onDownload, onOpenImage, imageRef, activeImage, tabName, onImageLoad, imageOpenAnim }: any) => {
-  const thumbnailOpacity = useMemo(
-    () =>
-      imageOpenAnim.interpolate({
-        inputRange: [0, 0.5],
-        outputRange: [1, 0],
-      }),
-    [imageOpenAnim]
-  );
+  const isCurrentlyActive = activeImage === url;
+
+  const thumbnailOpacity = imageOpenAnim.interpolate({
+    inputRange: [0, 0.5],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+
+  const handleLoad = (event: any) => {
+    const { width, height } = event.nativeEvent.source;
+    if (onImageLoad) {
+      onImageLoad(url, { width, height });
+    }
+  };
 
   return (
     <View style={styles.resultItemContainer}>
@@ -74,20 +80,24 @@ const MediaItem = ({ url, category, downloadInfo, isDownloading, onDownload, onO
             ref={imageRef}
             onPress={() => onOpenImage(url, tabName)}
           >
-            <Animated.Image
-              source={{ uri: url }}
-              style={[
-                styles.thumbnail,
-                { opacity: activeImage === url ? thumbnailOpacity : 1 }
-              ]}
-              resizeMode="cover"
-              onLoad={(event) => {
-                const { width, height } = event.nativeEvent.source;
-                if (onImageLoad) {
-                  onImageLoad(url, { width, height });
-                }
-              }}
-            />
+            {isCurrentlyActive ? (
+              <Animated.Image
+                source={{ uri: url }}
+                style={[
+                  styles.thumbnail,
+                  { opacity: thumbnailOpacity }
+                ]}
+                resizeMode="cover"
+                onLoad={handleLoad}
+              />
+            ) : (
+              <Image
+                source={{ uri: url }}
+                style={styles.thumbnail}
+                resizeMode="cover"
+                onLoad={handleLoad}
+              />
+            )}
           </Pressable>
         )}
         <Text style={styles.linkText} selectable numberOfLines={2} ellipsizeMode="middle">{url}</Text>
@@ -327,9 +337,13 @@ export default function App() {
       useNativeDriver: true,
       bounciness: 8,
       speed: 8,
-    }).start(() => {
-      setActiveImage(null);
-      setSourceImageGeometry({ x: 0, y: 0, width: 0, height: 0 });
+    }).start(({ finished }) => {
+      if (finished) {
+        setTimeout(() => {
+          setActiveImage(null);
+          setSourceImageGeometry({ x: 0, y: 0, width: 0, height: 0 });
+        }, 0);
+      }
     });
   };
 
