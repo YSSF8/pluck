@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TextInput, Image, Pressable, ScrollView, SafeAreaView, ActivityIndicator, Alert, Animated, Dimensions, Modal } from 'react-native';
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { extractMedia } from './lib/parser';
 
 import * as FileSystem from 'expo-file-system';
@@ -56,7 +56,16 @@ const ProgressBar = ({ progress }: { progress: number }) => {
   );
 };
 
-const MediaItem = ({ url, category, downloadInfo, isDownloading, onDownload, onOpenImage, imageRef, activeImage, tabName }: any) => {
+const MediaItem = ({ url, category, downloadInfo, isDownloading, onDownload, onOpenImage, imageRef, activeImage, tabName, onImageLoad, imageOpenAnim }: any) => {
+  const thumbnailOpacity = useMemo(
+    () =>
+      imageOpenAnim.interpolate({
+        inputRange: [0, 0.5],
+        outputRange: [1, 0],
+      }),
+    [imageOpenAnim]
+  );
+
   return (
     <View style={styles.resultItemContainer}>
       <View style={styles.resultItem}>
@@ -69,9 +78,15 @@ const MediaItem = ({ url, category, downloadInfo, isDownloading, onDownload, onO
               source={{ uri: url }}
               style={[
                 styles.thumbnail,
-                { opacity: activeImage === url ? 0 : 1 }
+                { opacity: activeImage === url ? thumbnailOpacity : 1 }
               ]}
               resizeMode="cover"
+              onLoad={(event) => {
+                const { width, height } = event.nativeEvent.source;
+                if (onImageLoad) {
+                  onImageLoad(url, { width, height });
+                }
+              }}
             />
           </Pressable>
         )}
@@ -109,6 +124,7 @@ export default function App() {
   const [activeImage, setActiveImage] = useState<string | null>(null);
   const [sourceImageGeometry, setSourceImageGeometry] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const [targetImageGeometry, setTargetImageGeometry] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const [imageDimensions, setImageDimensions] = useState<{ [url: string]: { width: number, height: number } }>({});
   const imageOpenAnim = useRef(new Animated.Value(0)).current;
   const imageRefs = useRef<{ [key: string]: View | null }>({});
 
@@ -119,10 +135,17 @@ export default function App() {
         toValue: 1,
         useNativeDriver: true,
         bounciness: 8,
-        speed: 14,
+        speed: 8,
       }).start();
     }
   }, [activeImage]);
+
+  const handleImageLoad = (url: string, dims: { width: number, height: number }) => {
+    setImageDimensions(prev => ({
+      ...prev,
+      [url]: dims,
+    }));
+  };
 
   const resolveUrl = (baseUrl: string, relativeUrl: string): string => {
     if (!relativeUrl) return '';
@@ -143,6 +166,7 @@ export default function App() {
     }
     setIsLoading(true);
     setDownloads({});
+    setImageDimensions({});
 
     try {
       const directMediaCategory = getDirectMediaCategory(link);
@@ -258,29 +282,42 @@ export default function App() {
     const sourceRef = imageRefs.current[`${tabName}-${url}`];
     if (!sourceRef) return;
 
+    const calculateGeometryAndAnimate = (imgWidth: number, imgHeight: number) => {
+      const aspectRatio = imgWidth / imgHeight;
+      let targetWidth = windowWidth;
+      let targetHeight = targetWidth / aspectRatio;
+
+      if (targetHeight > windowHeight) {
+        targetHeight = windowHeight;
+        targetWidth = targetHeight * aspectRatio;
+      }
+
+      const targetX = (windowWidth - targetWidth) / 2;
+      const targetY = (windowHeight - targetHeight) / 2;
+
+      setTargetImageGeometry({ x: targetX, y: targetY, width: targetWidth, height: targetHeight });
+      setActiveImage(url);
+    };
+
     sourceRef.measure((_fx, _fy, width, height, px, py) => {
       setSourceImageGeometry({ x: px, y: py, width, height });
 
-      Image.getSize(url, (imgWidth, imgHeight) => {
-        const aspectRatio = imgWidth / imgHeight;
-        let targetWidth = windowWidth;
-        let targetHeight = targetWidth / aspectRatio;
-
-        if (targetHeight > windowHeight) {
-          targetHeight = windowHeight;
-          targetWidth = targetHeight * aspectRatio;
-        }
-
-        const targetX = (windowWidth - targetWidth) / 2;
-        const targetY = (windowHeight - targetHeight) / 2;
-
-        setTargetImageGeometry({ x: targetX, y: targetY, width: targetWidth, height: targetHeight });
-        setActiveImage(url);
-
-      }, (error) => {
-        console.error(`Couldn't get image size: ${error.message}`);
-        Alert.alert("Error", "Could not load image dimensions for animation.");
-      });
+      const preloadedDimensions = imageDimensions[url];
+      if (preloadedDimensions) {
+        calculateGeometryAndAnimate(preloadedDimensions.width, preloadedDimensions.height);
+      } else {
+        console.warn(`Dimensions for ${url} not pre-loaded. Fetching now...`);
+        Image.getSize(url,
+          (imgWidth, imgHeight) => {
+            handleImageLoad(url, { width: imgWidth, height: imgHeight });
+            calculateGeometryAndAnimate(imgWidth, imgHeight);
+          },
+          (error) => {
+            console.error(`Couldn't get image size: ${error.message}`);
+            Alert.alert("Error", "Could not load image dimensions for animation.");
+          }
+        );
+      }
     });
   };
 
@@ -289,7 +326,7 @@ export default function App() {
       toValue: 0,
       useNativeDriver: true,
       bounciness: 8,
-      speed: 14,
+      speed: 8,
     }).start(() => {
       setActiveImage(null);
       setSourceImageGeometry({ x: 0, y: 0, width: 0, height: 0 });
@@ -325,8 +362,10 @@ export default function App() {
           isDownloading={isDownloading}
           onDownload={handleDownload}
           onOpenImage={openImage}
+          onImageLoad={handleImageLoad}
           imageRef={(el: View | null) => { imageRefs.current[`${tabName}-${url}`] = el; }}
           activeImage={activeImage}
+          imageOpenAnim={imageOpenAnim}
         />
       );
     });
@@ -376,7 +415,10 @@ export default function App() {
     const animatedBackdropStyle = {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: 'black',
-      opacity: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.9] }),
+      opacity: imageOpenAnim.interpolate({
+        inputRange: [0.5, 1],
+        outputRange: [0, 0.9]
+      }),
     };
 
     return (
