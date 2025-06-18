@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, Image, Pressable, ScrollView, SafeAreaView, ActivityIndicator, Alert, Animated, Dimensions, Modal } from 'react-native';
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { StyleSheet, Text, View, TextInput, Image, Pressable, SafeAreaView, ActivityIndicator, Alert, Animated, Dimensions, Modal, FlatList } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
 import { extractMedia } from './lib/parser';
 
 import * as FileSystem from 'expo-file-system';
@@ -138,8 +138,10 @@ export default function App() {
   const imageOpenAnim = useRef(new Animated.Value(0)).current;
   const imageRefs = useRef<{ [key: string]: View | null }>({});
 
+  const [isViewerVisible, setIsViewerVisible] = useState(false);
+
   useEffect(() => {
-    if (activeImage) {
+    if (activeImage && isViewerVisible) {
       imageOpenAnim.setValue(0);
       Animated.spring(imageOpenAnim, {
         toValue: 1,
@@ -148,7 +150,7 @@ export default function App() {
         speed: 8,
       }).start();
     }
-  }, [activeImage]);
+  }, [activeImage, isViewerVisible]);
 
   const handleImageLoad = (url: string, dims: { width: number, height: number }) => {
     setImageDimensions(prev => ({
@@ -290,7 +292,10 @@ export default function App() {
 
   const openImage = (url: string, tabName: string) => {
     const sourceRef = imageRefs.current[`${tabName}-${url}`];
-    if (!sourceRef) return;
+    if (!sourceRef) {
+      console.warn('Source ref not found for image:', url);
+      return;
+    }
 
     const calculateGeometryAndAnimate = (imgWidth: number, imgHeight: number) => {
       const aspectRatio = imgWidth / imgHeight;
@@ -307,9 +312,14 @@ export default function App() {
 
       setTargetImageGeometry({ x: targetX, y: targetY, width: targetWidth, height: targetHeight });
       setActiveImage(url);
+      setIsViewerVisible(true);
     };
 
     sourceRef.measure((_fx, _fy, width, height, px, py) => {
+      if (width === 0 || height === 0) {
+        console.warn('Image ref measurement returned zero dimensions for:', url);
+        return;
+      }
       setSourceImageGeometry({ x: px, y: py, width, height });
 
       const preloadedDimensions = imageDimensions[url];
@@ -325,10 +335,16 @@ export default function App() {
           (error) => {
             console.error(`Couldn't get image size: ${error.message}`);
             Alert.alert("Error", "Could not load image dimensions for animation.");
+            setActiveImage(null);
           }
         );
       }
     });
+  };
+
+  const onViewerDismiss = () => {
+    setActiveImage(null);
+    setSourceImageGeometry({ x: 0, y: 0, width: 0, height: 0 });
   };
 
   const closeImage = () => {
@@ -339,49 +355,8 @@ export default function App() {
       speed: 8,
     }).start(({ finished }) => {
       if (finished) {
-        setTimeout(() => {
-          setActiveImage(null);
-          setSourceImageGeometry({ x: 0, y: 0, width: 0, height: 0 });
-        }, 0);
+        setIsViewerVisible(false);
       }
-    });
-  };
-
-  const renderContentForTab = (tabName: 'All' | 'Image' | 'Audio' | 'Video') => {
-    let dataToRender: string[] = [];
-
-    if (tabName === 'All') {
-      dataToRender = [...media.images, ...media.audios, ...media.videos];
-    } else {
-      const dataMap = { Image: media.images, Audio: media.audios, Video: media.videos };
-      dataToRender = dataMap[tabName];
-    }
-
-    if (dataToRender.length === 0) {
-      const message = tabName === 'All' ? 'No media found.' : `No ${tabName.toLowerCase()}s found.`;
-      return <Text style={styles.noResultsText}>{message}</Text>;
-    }
-
-    return dataToRender.map((url, index) => {
-      const category = tabName === 'All' ? getDirectMediaCategory(url) : tabName;
-      if (!category) return null;
-
-      return (
-        <MediaItem
-          key={`${tabName}-${url}-${index}`}
-          url={url}
-          category={category}
-          tabName={tabName}
-          downloadInfo={downloads[url]}
-          isDownloading={isDownloading}
-          onDownload={handleDownload}
-          onOpenImage={openImage}
-          onImageLoad={handleImageLoad}
-          imageRef={(el: View | null) => { imageRefs.current[`${tabName}-${url}`] = el; }}
-          activeImage={activeImage}
-          imageOpenAnim={imageOpenAnim}
-        />
-      );
     });
   };
 
@@ -392,6 +367,7 @@ export default function App() {
   });
 
   const renderImageViewer = () => {
+    if (!isViewerVisible) return null;
     if (!activeImage || !sourceImageGeometry.width) return null;
 
     const translateCenterX = (windowWidth / 2) - (sourceImageGeometry.x + sourceImageGeometry.width / 2);
@@ -405,38 +381,26 @@ export default function App() {
       height: sourceImageGeometry.height,
       opacity: imageOpenAnim,
       transform: [
-        {
-          translateX: imageOpenAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0, translateCenterX],
-          }),
-        },
-        {
-          translateY: imageOpenAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0, translateCenterY],
-          }),
-        },
-        {
-          scale: imageOpenAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [1, targetImageGeometry.width / sourceImageGeometry.width],
-          }),
-        },
+        { translateX: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [0, translateCenterX] }) },
+        { translateY: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [0, translateCenterY] }) },
+        { scale: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [1, targetImageGeometry.width / sourceImageGeometry.width] }) },
       ],
     };
 
     const animatedBackdropStyle = {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: 'black',
-      opacity: imageOpenAnim.interpolate({
-        inputRange: [0.5, 1],
-        outputRange: [0, 0.9]
-      }),
+      opacity: imageOpenAnim.interpolate({ inputRange: [0.5, 1], outputRange: [0, 0.9] }),
     };
 
     return (
-      <Modal visible={activeImage !== null} transparent hardwareAccelerated onRequestClose={closeImage}>
+      <Modal
+        visible={isViewerVisible}
+        transparent
+        hardwareAccelerated
+        onRequestClose={closeImage}
+        onDismiss={onViewerDismiss}
+      >
         <View style={styles.imageViewerContainer}>
           <Animated.View style={animatedBackdropStyle} />
           <Pressable style={StyleSheet.absoluteFill} onPress={closeImage} />
@@ -492,11 +456,52 @@ export default function App() {
           <ActivityIndicator size="large" color={variables.accent} style={{ marginTop: 40 }} />
         ) : (
           <Animated.View style={[styles.animatedContent, { transform: [{ translateX }] }]}>
-            {TABS.map((tabName) => (
-              <ScrollView key={tabName} style={{ width: contentWidth }} contentContainerStyle={styles.results}>
-                {renderContentForTab(tabName as any)}
-              </ScrollView>
-            ))}
+            {TABS.map((tabName) => {
+              let dataToRender: string[] = [];
+              if (tabName === 'All') {
+                dataToRender = [...media.images, ...media.audios, ...media.videos];
+              } else {
+                const dataMap = { Image: media.images, Audio: media.audios, Video: media.videos };
+                dataToRender = dataMap[tabName as keyof typeof dataMap] || [];
+              }
+
+              return (
+                <FlatList
+                  key={tabName}
+                  style={{ width: contentWidth }}
+                  contentContainerStyle={styles.results}
+                  data={dataToRender}
+                  renderItem={({ item: url }) => {
+                    const category = tabName === 'All' ? getDirectMediaCategory(url) : tabName;
+                    if (!category) return null;
+
+                    return (
+                      <MediaItem
+                        url={url}
+                        category={category}
+                        tabName={tabName}
+                        downloadInfo={downloads[url]}
+                        isDownloading={isDownloading}
+                        onDownload={handleDownload}
+                        onOpenImage={openImage}
+                        onImageLoad={handleImageLoad}
+                        imageRef={(el: View | null) => { imageRefs.current[`${tabName}-${url}`] = el; }}
+                        activeImage={activeImage}
+                        imageOpenAnim={imageOpenAnim}
+                      />
+                    );
+                  }}
+                  keyExtractor={(url, index) => `${tabName}-${url}-${index}`}
+                  ListEmptyComponent={() => {
+                    const message = tabName === 'All' ? 'No media found.' : `No ${tabName.toLowerCase()}s found.`;
+                    return <Text style={styles.noResultsText}>{message}</Text>;
+                  }}
+                  initialNumToRender={10}
+                  maxToRenderPerBatch={10}
+                  windowSize={11}
+                />
+              );
+            })}
           </Animated.View>
         )}
       </View>
