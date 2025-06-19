@@ -8,6 +8,9 @@ import type { DownloadProgressData } from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import { Feather } from '@expo/vector-icons';
 
+import { GestureHandlerRootView, PanGestureHandler, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
+
+
 type Media = {
   images: string[];
   audios: string[];
@@ -140,17 +143,96 @@ export default function App() {
 
   const [isViewerVisible, setIsViewerVisible] = useState(false);
 
+  const baseScale = useRef(new Animated.Value(1)).current;
+  const pinchScale = useRef(new Animated.Value(1)).current;
+  const scale = Animated.multiply(baseScale, pinchScale);
+  const lastScale = useRef(1);
+
+  const panX = useRef(new Animated.Value(0)).current;
+  const panY = useRef(new Animated.Value(0)).current;
+  const lastPanX = useRef(0);
+  const lastPanY = useRef(0);
+
   useEffect(() => {
     if (activeImage && isViewerVisible) {
       imageOpenAnim.setValue(0);
       Animated.spring(imageOpenAnim, {
         toValue: 1,
-        useNativeDriver: true,
+        useNativeDriver: false,
         bounciness: 8,
         speed: 8,
       }).start();
     }
   }, [activeImage, isViewerVisible]);
+
+  const onPinchGestureEvent = Animated.event(
+    [{ nativeEvent: { scale: pinchScale } }],
+    { useNativeDriver: true }
+  );
+
+  const onPanGestureEvent = Animated.event(
+    [{ nativeEvent: { translationX: panX, translationY: panY } }],
+    { useNativeDriver: true }
+  );
+
+  const onPinchHandlerStateChange = (event: any) => {
+    if (event.nativeEvent.oldState === State.ACTIVE) {
+      lastScale.current = Math.max(1, lastScale.current * event.nativeEvent.scale);
+      baseScale.setValue(lastScale.current);
+      pinchScale.setValue(1);
+
+      if (lastScale.current === 1) {
+        lastPanX.current = 0;
+        lastPanY.current = 0;
+        panX.setOffset(0);
+        panY.setOffset(0);
+        Animated.parallel([
+          Animated.spring(panX, { toValue: 0, useNativeDriver: true }),
+          Animated.spring(panY, { toValue: 0, useNativeDriver: true }),
+        ]).start();
+      }
+    }
+  };
+
+  const onPanHandlerStateChange = (event: any) => {
+    if (event.nativeEvent.oldState === State.ACTIVE) {
+      if (lastScale.current > 1) {
+        lastPanX.current += event.nativeEvent.translationX;
+        lastPanY.current += event.nativeEvent.translationY;
+        panX.setOffset(lastPanX.current);
+        panY.setOffset(lastPanY.current);
+        panX.setValue(0);
+        panY.setValue(0);
+      } else {
+        panX.setValue(0);
+        panY.setValue(0);
+        Animated.spring(panX, { toValue: 0, useNativeDriver: true }).start();
+        Animated.spring(panY, { toValue: 0, useNativeDriver: true }).start();
+      }
+    }
+  };
+
+  const onDoubleTapStateChange = (event: any) => {
+    if (event.nativeEvent.state === State.ACTIVE) {
+      if (lastScale.current > 1) {
+        lastScale.current = 1;
+        lastPanX.current = 0;
+        lastPanY.current = 0;
+
+        panX.setOffset(0);
+        panY.setOffset(0);
+
+        Animated.parallel([
+          Animated.spring(baseScale, { toValue: 1, useNativeDriver: true }),
+          Animated.spring(panX, { toValue: 0, useNativeDriver: true }),
+          Animated.spring(panY, { toValue: 0, useNativeDriver: true }),
+        ]).start();
+      } else {
+        lastScale.current = 2;
+        Animated.spring(baseScale, { toValue: 2, useNativeDriver: true }).start();
+      }
+    }
+  };
 
   const handleImageLoad = (url: string, dims: { width: number, height: number }) => {
     setImageDimensions(prev => ({
@@ -348,14 +430,40 @@ export default function App() {
   };
 
   const closeImage = () => {
-    Animated.spring(imageOpenAnim, {
-      toValue: 0,
-      useNativeDriver: true,
-      bounciness: 8,
-      speed: 8,
-    }).start(({ finished }) => {
+    panX.flattenOffset();
+    panY.flattenOffset();
+
+    Animated.parallel([
+      Animated.spring(imageOpenAnim, {
+        toValue: 0,
+        useNativeDriver: false,
+        bounciness: 8,
+        speed: 8,
+      }),
+      Animated.spring(baseScale, {
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+      Animated.spring(panX, {
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+      Animated.spring(panY, {
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
       if (finished) {
         setIsViewerVisible(false);
+        lastScale.current = 1;
+        baseScale.setValue(1);
+        pinchScale.setValue(1);
+        lastPanX.current = 0;
+        lastPanY.current = 0;
+        panX.setOffset(0);
+        panY.setOffset(0);
+        panX.setValue(0);
+        panY.setValue(0);
       }
     });
   };
@@ -367,30 +475,26 @@ export default function App() {
   });
 
   const renderImageViewer = () => {
-    if (!isViewerVisible) return null;
-    if (!activeImage || !sourceImageGeometry.width) return null;
-
-    const translateCenterX = (windowWidth / 2) - (sourceImageGeometry.x + sourceImageGeometry.width / 2);
-    const translateCenterY = (windowHeight / 2) - (sourceImageGeometry.y + sourceImageGeometry.height / 2);
-
-    const animatedImageStyle = {
-      position: 'absolute' as const,
-      left: sourceImageGeometry.x,
-      top: sourceImageGeometry.y,
-      width: sourceImageGeometry.width,
-      height: sourceImageGeometry.height,
-      opacity: imageOpenAnim,
-      transform: [
-        { translateX: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [0, translateCenterX] }) },
-        { translateY: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [0, translateCenterY] }) },
-        { scale: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [1, targetImageGeometry.width / sourceImageGeometry.width] }) },
-      ],
-    };
+    if (!isViewerVisible || !activeImage) return null;
 
     const animatedBackdropStyle = {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: 'black',
       opacity: imageOpenAnim.interpolate({ inputRange: [0.5, 1], outputRange: [0, 0.9] }),
+    };
+
+    const animatedContainerStyle = {
+      position: 'absolute' as const,
+      left: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [sourceImageGeometry.x, targetImageGeometry.x] }),
+      top: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [sourceImageGeometry.y, targetImageGeometry.y] }),
+      width: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [sourceImageGeometry.width, targetImageGeometry.width] }),
+      height: imageOpenAnim.interpolate({ inputRange: [0, 1], outputRange: [sourceImageGeometry.height, targetImageGeometry.height] }),
+      opacity: imageOpenAnim,
+    };
+
+    const imageTransformStyle = {
+      flex: 1,
+      transform: [{ translateX: panX }, { translateY: panY }, { scale }],
     };
 
     return (
@@ -401,11 +505,38 @@ export default function App() {
         onRequestClose={closeImage}
         onDismiss={onViewerDismiss}
       >
-        <View style={styles.imageViewerContainer}>
+        <GestureHandlerRootView style={styles.imageViewerContainer}>
           <Animated.View style={animatedBackdropStyle} />
           <Pressable style={StyleSheet.absoluteFill} onPress={closeImage} />
-          <Animated.Image source={{ uri: activeImage }} style={animatedImageStyle} resizeMode="contain" />
-        </View>
+          <Animated.View style={animatedContainerStyle}>
+            <PanGestureHandler
+              onGestureEvent={onPanGestureEvent}
+              onHandlerStateChange={onPanHandlerStateChange}
+              minPointers={1}
+              maxPointers={1}
+            >
+              <Animated.View style={styles.imageViewerContainer}>
+                <PinchGestureHandler
+                  onGestureEvent={onPinchGestureEvent}
+                  onHandlerStateChange={onPinchHandlerStateChange}
+                >
+                  <Animated.View style={styles.imageViewerContainer}>
+                    <TapGestureHandler
+                      onHandlerStateChange={onDoubleTapStateChange}
+                      numberOfTaps={2}
+                    >
+                      <Animated.Image
+                        source={{ uri: activeImage }}
+                        style={imageTransformStyle}
+                        resizeMode="contain"
+                      />
+                    </TapGestureHandler>
+                  </Animated.View>
+                </PinchGestureHandler>
+              </Animated.View>
+            </PanGestureHandler>
+          </Animated.View>
+        </GestureHandlerRootView>
       </Modal>
     );
   };
