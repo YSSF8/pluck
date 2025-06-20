@@ -206,13 +206,21 @@ export default function App() {
         panX.setValue(0);
         panY.setValue(0);
       } else {
-        panX.setValue(0);
-        panY.setValue(0);
-        Animated.spring(panX, { toValue: 0, useNativeDriver: true }).start();
-        Animated.spring(panY, { toValue: 0, useNativeDriver: true }).start();
+        const { translationY } = event.nativeEvent;
+        const SWIPE_CLOSE_THRESHOLD = 75;
+
+        if (translationY > SWIPE_CLOSE_THRESHOLD) {
+          closeImage();
+        } else {
+          Animated.parallel([
+            Animated.spring(panX, { toValue: 0, useNativeDriver: true }),
+            Animated.spring(panY, { toValue: 0, useNativeDriver: true }),
+          ]).start();
+        }
       }
     }
   };
+
 
   const onDoubleTapStateChange = (event: any) => {
     if (event.nativeEvent.state === State.ACTIVE) {
