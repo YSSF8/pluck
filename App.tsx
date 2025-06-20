@@ -10,6 +10,8 @@ import { Feather } from '@expo/vector-icons';
 
 import { GestureHandlerRootView, PanGestureHandler, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
 
+import * as Haptics from 'expo-haptics';
+
 
 type Media = {
   images: string[];
@@ -285,8 +287,10 @@ export default function App() {
         });
         handleTabPress(0);
       }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.error(error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Failed to pluck', 'Could not fetch or parse the link.');
     } finally {
       setIsLoading(false);
@@ -354,6 +358,8 @@ export default function App() {
         console.warn('Could not organize file into album. The file is saved to your main library.', albumError);
       }
 
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
       Alert.alert(
         'Success!',
         `${filename} has been saved to your device's media library.`
@@ -361,6 +367,7 @@ export default function App() {
 
     } catch (e) {
       console.error(e);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Download Failed', 'A critical error occurred while trying to download the file.');
     } finally {
       setDownloads(prev => {
@@ -373,6 +380,8 @@ export default function App() {
   };
 
   const openImage = (url: string, tabName: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
     const sourceRef = imageRefs.current[`${tabName}-${url}`];
     if (!sourceRef) {
       console.warn('Source ref not found for image:', url);
