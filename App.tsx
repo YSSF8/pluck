@@ -551,6 +551,10 @@ export default function App() {
           placeholder="Paste link..." placeholderTextColor="gray" autoCapitalize="none" autoCorrect={false}
           onFocus={() => setIsInputFocused(true)} onBlur={() => setIsInputFocused(false)}
           onChangeText={setLink} value={link}
+          onSubmitEditing={handlePluck}
+          returnKeyType="go"
+          autoComplete="off"
+          keyboardType="url"
         />
         <View style={styles.buttonWrapper}>
           <Pressable
